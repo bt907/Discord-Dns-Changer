@@ -7,10 +7,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <AssemblyName>DNS_Switcher</AssemblyName>
     <RootNamespace>DNS_Switcher</RootNamespace>
     <Platforms>x64;x86;AnyCPU</Platforms>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\icon.png"/>
+    <Resource Include="Assets\icon.ico"/>
+  </ItemGroup>
 
 </Project>

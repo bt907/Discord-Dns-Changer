@@ -1,173 +1,153 @@
-# DNS Switcher
+<div align="center">
+  <img src="Assets/icon.png" width="96" height="96" alt="Discord DNS Switcher"/>
+  <h1>Discord DNS Switcher</h1>
+  <p>A clean Windows utility that changes your DNS in one click — built to fix Discord connectivity issues caused by ISP DNS blocks.</p>
 
-A clean, dark-themed Windows desktop utility for quickly changing DNS settings
-on Wi-Fi and Ethernet adapters — with special handling for the Windows 11
-IPv6 DNS override problem.
-
----
-
-## Requirements
-
-| Requirement       | Version               |
-|-------------------|-----------------------|
-| .NET SDK          | 8.0 or later          |
-| OS                | Windows 10 / 11       |
-| Privilege         | Administrator (to change DNS) |
+  ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-blue?style=flat-square)
+  ![.NET](https://img.shields.io/badge/.NET-8.0-purple?style=flat-square)
+  ![Admin](https://img.shields.io/badge/requires-Administrator-orange?style=flat-square)
+  ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+</div>
 
 ---
 
-## How to Build
+## What it does
 
-```powershell
-# From the project folder (where DNS_Switcher.csproj lives)
-dotnet build -c Release
+Your ISP may block or throttle Discord by returning bad DNS results. This app lets you switch to a trusted public DNS (Google, Cloudflare, Quad9) in seconds — no registry editing, no command prompt needed.
 
-# Or publish a self-contained single-file executable
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-```
-
-The compiled executable lands in `bin\Release\net8.0-windows\`.
+It handles the **Windows 11 IPv6 override problem** automatically: if only IPv4 DNS is changed, Windows still uses the IPv6 DNS server (usually your ISP's) and the problem persists. This app sets both at once.
 
 ---
 
-## How to Run as Administrator
+## Quick Start
 
-DNS changes on Windows require elevated privileges.  DNS Switcher does **not**
-auto-elevate itself.  You have two options:
+1. Download `DNS_Switcher_Setup.exe` from the [Releases](../../releases) page
+2. Run the installer — it bundles everything, no .NET install needed
+3. **Right-click → Run as administrator** (DNS changes require elevation)
+4. Pick a DNS preset, click **▶ Apply DNS**, done
 
-### Option A — Right-click → "Run as administrator"
-Right-click `DNS_Switcher.exe` in Explorer and choose **Run as administrator**.
+---
 
-### Option B — Use the in-app button
-Launch the app normally.  If it detects it is **not** elevated it shows an
-orange warning banner at the top.  Click **"Restart as Administrator"** and
-approve the UAC prompt.  The app relaunches with full privileges automatically.
+## Features
+
+| Feature | Details |
+|---|---|
+| **One-click presets** | Google, Cloudflare, and Quad9 with IPv4 + IPv6 |
+| **Custom DNS** | Enter any primary / secondary address for both families |
+| **Auto-detects adapters** | Finds active physical adapters, skips virtual/VPN ones |
+| **IPv6 handling** | Sets both IPv4 and IPv6 DNS together to prevent override |
+| **Disable IPv6** | Optional nuclear option if IPv6 itself is the problem |
+| **Restore automatic** | Reset to DHCP with one click |
+| **Discord test** | Tests DNS resolution, ping, and TCP connect to discord.com |
+| **Detailed log** | Every PowerShell command, exit code, and result is shown |
+| **Self-contained** | Single `.exe`, no .NET runtime install required |
 
 ---
 
 ## DNS Providers
 
-### Google Public DNS
-| Type | Primary            | Secondary          |
-|------|--------------------|--------------------|
-| IPv4 | `8.8.8.8`          | `8.8.4.4`          |
+### Google `8.8.8.8`
+| | Primary | Secondary |
+|---|---|---|
+| IPv4 | `8.8.8.8` | `8.8.4.4` |
 | IPv6 | `2001:4860:4860::8888` | `2001:4860:4860::8844` |
 
-Google DNS is fast, globally distributed, and widely used.  Good default choice.
+Fast and globally distributed. The safe default.
 
-### Cloudflare DNS (1.1.1.1)
-| Type | Primary            | Secondary          |
-|------|--------------------|--------------------|
-| IPv4 | `1.1.1.1`          | `1.0.0.1`          |
+### Cloudflare `1.1.1.1`
+| | Primary | Secondary |
+|---|---|---|
+| IPv4 | `1.1.1.1` | `1.0.0.1` |
 | IPv6 | `2606:4700:4700::1111` | `2606:4700:4700::1001` |
 
-Cloudflare DNS is consistently ranked the **fastest** DNS resolver worldwide.
-It also has a strong privacy policy — they do not log personal data.
+Ranked the fastest DNS resolver worldwide. Privacy-first (no personal data logging).
 
-### Quad9
-| Type | Primary            | Secondary          |
-|------|--------------------|--------------------|
-| IPv4 | `9.9.9.9`          | `149.112.112.112`  |
-| IPv6 | `2620:fe::fe`      | `2620:fe::9`       |
+### Quad9 `9.9.9.9`
+| | Primary | Secondary |
+|---|---|---|
+| IPv4 | `9.9.9.9` | `149.112.112.112` |
+| IPv6 | `2620:fe::fe` | `2620:fe::9` |
 
-Quad9 **blocks domains known to host malware, ransomware, and phishing** using
-threat intelligence from multiple security partners.  Choose this for extra
-security without installing additional software.
+Blocks malware, ransomware, and phishing domains automatically.
 
 ---
 
-## Why IPv6 DNS Matters on Windows 11
+## Why IPv6 DNS matters on Windows 11
 
-Windows prefers IPv6 over IPv4 when both are available.  This means the
-**system resolves DNS names using the IPv6 DNS server first**.
+Windows prefers IPv6 over IPv4 when both are available. If you change only the IPv4 DNS to `8.8.8.8` but leave IPv6 DNS pointing at your ISP, Windows continues using the ISP DNS for most lookups.
 
-If you set only the IPv4 DNS (e.g. `8.8.8.8`) but leave the IPv6 DNS
-untouched (pointing at your ISP), Windows will often **ignore your IPv4 DNS**
-and use the IPv6 one instead.
+**Symptoms:**
+- Discord still fails after switching DNS
+- `nslookup discord.com` returns your ISP's blocked address
+- Other apps on the same network work fine
 
-### Symptoms
-- Websites load slowly even after changing DNS.
-- `nslookup discord.com` resolves differently than expected.
-- Discord, Roblox, or other services still fail after changing DNS.
-
-### Solution
-- **Always check "Set IPv6 DNS too"** (enabled by default).
-- If that still does not work, use **"Disable IPv6 on selected adapter"** to
-  remove IPv6 entirely from the adapter.  Only do this as a last resort.
+**Solution:** Always leave "Set IPv6 DNS too" checked (it is on by default).
 
 ---
 
-## How to Restore Automatic DNS
+## Building from source
 
-Click **"↺ Restore Automatic DNS"** in the Actions section.
-
-This runs:
 ```powershell
-Set-DnsClientServerAddress -InterfaceAlias "<adapter>" -ResetServerAddresses
+# Clone
+git clone https://github.com/bt907/Discord-Dns-Changer.git
+cd Discord-Dns-Changer
+
+# Build
+dotnet build -c Release
+
+# Publish self-contained single-file exe
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ```
 
-The adapter will then receive DNS servers from your router via DHCP — the
-same behaviour as a factory-reset network connection.
+Requires [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 
 ---
 
-## Safety Notes
-
-- The app **never silently disables IPv6**.  A confirmation dialog always
-  appears first.
-- The "Disable IPv6" checkbox re-enables IPv6 automatically when unchecked.
-- Virtual adapters (Hyper-V, Docker, VPN, Bluetooth PAN, Loopback) are
-  **excluded** from the adapter list to prevent accidental changes.
-- All PowerShell commands are run with `-NonInteractive` and
-  `-ExecutionPolicy Bypass` so they never prompt the user.
-- Errors are displayed in the log panel; the app never crashes silently.
-
----
-
-## Project Structure
+## Project layout
 
 ```
-DNS_Switcher/
-├── DNS_Switcher.csproj       – .NET 8 WPF project file
-├── app.manifest              – UAC manifest (asInvoker) + DPI awareness
-├── App.xaml / App.xaml.cs    – WPF application entry point
-├── MainWindow.xaml           – Full dark-mode UI layout
-├── MainWindow.xaml.cs        – UI event handlers & orchestration
+Discord-Dns-Changer/
+├── Assets/
+│   ├── icon.png              – App logo
+│   └── icon.ico              – Taskbar / exe icon
 ├── Models/
 │   ├── NetworkAdapterInfo.cs – Adapter data model
 │   └── DnsProvider.cs        – DNS preset definitions
-└── Services/
-    ├── AdminService.cs       – Admin check & UAC elevation
-    ├── PowerShellService.cs  – Runs PowerShell commands safely (async)
-    ├── AdapterService.cs     – Discovers adapters + reads current DNS
-    └── DnsService.cs         – Apply / restore / disable-IPv6 / test
+├── Services/
+│   ├── AdminService.cs       – Admin check + UAC elevation
+│   ├── PowerShellService.cs  – Async PS runner with CLIXML cleaner
+│   ├── AdapterService.cs     – Discovers adapters + reads DNS
+│   ├── DnsService.cs         – Apply / restore / test
+│   └── DiscordService.cs     – Discord install detection
+├── installer/
+│   └── DNS_Switcher_Setup.iss – Inno Setup script
+├── MainWindow.xaml            – UI layout (WPF, dark theme)
+├── MainWindow.xaml.cs         – UI event handlers
+├── DNS_Switcher.csproj        – .NET 8 project file
+└── app.manifest               – UAC + DPI awareness manifest
 ```
-
----
-
-## Keyboard Shortcuts
-
-| Action                  | Shortcut     |
-|-------------------------|--------------|
-| Refresh adapter list    | Click ↻      |
-| Clear log               | Click Clear  |
-| Apply DNS               | Click ▶ Apply DNS |
 
 ---
 
 ## Troubleshooting
 
 **"No active adapters found"**  
-Make sure at least one physical adapter is connected and shows Status = Up
-in Device Manager.
+At least one physical adapter must be connected and enabled. Virtual adapters (Hyper-V, Docker, VPN, Bluetooth PAN) are intentionally filtered out.
 
-**"Access Denied" in the log**  
-The app is not running as Administrator.  Use the banner button to restart elevated.
+**"Restart as Administrator" button appears**  
+DNS changes require elevation. Click the button and approve the UAC prompt — the app will relaunch with admin rights automatically.
 
 **IPv6 DNS command fails**  
-Some adapters or older Windows builds do not expose an IPv6 interface.
-This is a warning, not an error — the IPv4 DNS change still applies.
+Some older adapters or Windows builds don't expose an IPv6 interface. This is a warning, not a fatal error — the IPv4 DNS change still applies.
 
-**DNS test shows "FAILED"**  
-Your network may be blocking DNS queries on port 53 to external servers
-(common on corporate or school networks).
+**Discord test shows "TCP 443 refused"**  
+Your network (firewall, ISP, router) is blocking port 443 to Discord's servers. Changing DNS alone won't fix a port block — try a VPN.
+
+**DNS test shows ISP address after applying**  
+Windows DNS cache can take a few seconds to expire. The app flushes the cache automatically after applying. Wait 5 seconds and test again.
+
+---
+
+## License
+
+MIT — do whatever you want with it.

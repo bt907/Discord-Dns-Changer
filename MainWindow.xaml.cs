@@ -381,6 +381,8 @@ public partial class MainWindow : Window
     /// Appends a single log line with timestamp and a 4-char level tag.
     /// Format:  [HH:mm:ss] [INFO] message
     /// </summary>
+    private int _logLineCount;
+
     private void Log(string level, string message)
     {
         var ts   = DateTime.Now.ToString("HH:mm:ss");
@@ -390,6 +392,8 @@ public partial class MainWindow : Window
         {
             LogBox.AppendText(line);
             LogBox.ScrollToEnd();
+            _logLineCount++;
+            LogCountLabel.Text = $"{_logLineCount} lines";
         });
     }
 
@@ -410,7 +414,11 @@ public partial class MainWindow : Window
     }
 
     private void ClearLog_Click(object sender, RoutedEventArgs e)
-        => LogBox.Clear();
+    {
+        LogBox.Clear();
+        _logLineCount = 0;
+        LogCountLabel.Text = "0 lines";
+    }
 
     // ── Utility ──────────────────────────────────────────────────────────────
 
