@@ -1,0 +1,9 @@
+<Application x:Class="DNS_Switcher.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <!-- Global font -->
+        <FontFamily x:Key="AppFont">Segoe UI</FontFamily>
+    </Application.Resources>
+</Application>
