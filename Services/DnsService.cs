@@ -34,7 +34,12 @@ public static class DnsService
             ? $"'{primaryIPv4}'"
             : $"'{primaryIPv4}','{secondaryIPv4}'";
 
+        // $ErrorActionPreference = 'Stop' converts non-terminating PS errors into
+        // terminating ones, so the process exits with code != 0 on any failure.
+        // Without this, Set-DnsClientServerAddress can silently "succeed" (exit 0)
+        // even when Windows rejects the change (e.g. access denied).
         var ipv4Cmd =
+            $"$ErrorActionPreference = 'Stop'; " +
             $"Set-DnsClientServerAddress " +
             $"-InterfaceAlias '{EscapePs(adapterName)}' " +
             $"-AddressFamily IPv4 " +
@@ -70,6 +75,7 @@ public static class DnsService
                 : $"'{primaryIPv6}','{secondaryIPv6}'";
 
             var ipv6Cmd =
+                $"$ErrorActionPreference = 'Stop'; " +
                 $"Set-DnsClientServerAddress " +
                 $"-InterfaceAlias '{EscapePs(adapterName)}' " +
                 $"-AddressFamily IPv6 " +
@@ -118,6 +124,7 @@ public static class DnsService
         log.AppendLine($"BEFORE IPv4: {beforeIPv4}");
 
         var cmd =
+            $"$ErrorActionPreference = 'Stop'; " +
             $"Set-DnsClientServerAddress " +
             $"-InterfaceAlias '{EscapePs(adapterName)}' " +
             $"-ResetServerAddresses";
@@ -152,6 +159,7 @@ public static class DnsService
     public static async Task<(bool success, string log)> DisableIPv6Async(string adapterName)
     {
         var cmd =
+            $"$ErrorActionPreference = 'Stop'; " +
             $"Disable-NetAdapterBinding " +
             $"-Name '{EscapePs(adapterName)}' " +
             $"-ComponentID ms_tcpip6";
@@ -170,6 +178,7 @@ public static class DnsService
     public static async Task<(bool success, string log)> EnableIPv6Async(string adapterName)
     {
         var cmd =
+            $"$ErrorActionPreference = 'Stop'; " +
             $"Enable-NetAdapterBinding " +
             $"-Name '{EscapePs(adapterName)}' " +
             $"-ComponentID ms_tcpip6";

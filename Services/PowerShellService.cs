@@ -36,6 +36,13 @@ public static class PowerShellService
         // Base64-encode as UTF-16 LE — the format -EncodedCommand expects
         var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
 
+        // Force PS output to UTF-8 so we read it correctly regardless of system locale.
+        // [Console]::OutputEncoding must be set inside the PS session itself.
+        var fullCommand = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
+                          "[Console]::Error.AutoFlush = $true; " +
+                          command;
+        encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(fullCommand));
+
         var startInfo = new ProcessStartInfo
         {
             FileName               = "powershell.exe",
@@ -44,6 +51,7 @@ public static class PowerShellService
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             CreateNoWindow         = true,
+            // Read bytes as UTF-8 — matches what we set inside the PS session above
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding  = Encoding.UTF8
         };
