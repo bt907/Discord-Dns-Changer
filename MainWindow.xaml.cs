@@ -93,14 +93,40 @@ public partial class MainWindow : Window
     // ── Test Discord connectivity ─────────────────────────────────────────────
 
     private async void TestDiscord_Click(object sender, RoutedEventArgs e)
+        => await RunDiscordTest(TestDiscordBtn);
+
+    private async void Test_Click(object sender, RoutedEventArgs e)
+        => await RunDiscordTest(TestBtn);
+
+    private async Task RunDiscordTest(Button btn)
     {
-        TestDiscordBtn.IsEnabled = false;
+        btn.IsEnabled = false;
         Log("----", "Starting Discord connectivity test…");
 
         try
         {
             var result = await DnsService.TestDiscordConnectivityAsync();
-            LogBlock(result);
+            LogBlock(result.Log);
+
+            bool allGood = result.DnsOk && result.PingOk && result.TcpOk;
+            bool partial = (result.DnsOk || result.PingOk) && !allGood;
+
+            if (allGood)
+            {
+                ShowSuccess("DNS resolved  ✓   Internet reachable  ✓   TCP 443 open  ✓");
+            }
+            else if (partial)
+            {
+                var issues = new List<string>();
+                if (!result.DnsOk)  issues.Add("DNS resolution failed");
+                if (!result.PingOk) issues.Add("ping unreachable");
+                if (!result.TcpOk)  issues.Add("TCP 443 blocked");
+                Log("WARN", $"Partial connectivity — {string.Join(", ", issues)}");
+            }
+            else
+            {
+                Log("FAIL", "Discord is NOT reachable. Check log for details.");
+            }
         }
         catch (Exception ex)
         {
@@ -108,9 +134,18 @@ public partial class MainWindow : Window
         }
         finally
         {
-            TestDiscordBtn.IsEnabled = true;
+            btn.IsEnabled = true;
         }
     }
+
+    private void ShowSuccess(string subText)
+    {
+        SuccessSubText.Text  = subText;
+        SuccessOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void DismissSuccess_Click(object sender, RoutedEventArgs e)
+        => SuccessOverlay.Visibility = Visibility.Collapsed;
 
     // ── Adapter loading ──────────────────────────────────────────────────────
 
@@ -320,20 +355,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── Generic DNS test ─────────────────────────────────────────────────────
-
-    private async void Test_Click(object sender, RoutedEventArgs e)
-    {
-        TestBtn.IsEnabled = false;
-        Log("----", "Running DNS connectivity test…");
-        try
-        {
-            var result = await DnsService.TestDiscordConnectivityAsync();
-            LogBlock(result);
-        }
-        catch (Exception ex) { Log("ERR ", ex.Message); }
-        finally { TestBtn.IsEnabled = true; }
-    }
 
     // ── Disable / enable IPv6 ────────────────────────────────────────────────
 

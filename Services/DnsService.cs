@@ -170,11 +170,14 @@ public static class DnsService
 
     // ── Discord connectivity test ────────────────────────────────────────────
 
-    public static async Task<string> TestDiscordConnectivityAsync()
+    public record DiscordTestResult(bool DnsOk, bool PingOk, bool TcpOk, string Log);
+
+    public static async Task<DiscordTestResult> TestDiscordConnectivityAsync()
     {
         var log = new StringBuilder();
         log.AppendLine("══ Discord Connectivity Test ══════════════════════════");
 
+        // 1) DNS resolve via system DNS
         log.AppendLine(string.Empty);
         log.AppendLine("1) Resolve discord.com  [system DNS]");
         var sysResolve = await PowerShellService.RunAsync(
@@ -184,10 +187,13 @@ public static class DnsService
             "       Select-Object -ExpandProperty IPAddress -First 4; " +
             "  if ($r) { $r -join ', ' } else { 'No records returned' } " +
             "} catch { 'FAILED: ' + $_.Exception.Message }");
+        bool dnsOk = !string.IsNullOrEmpty(sysResolve.Stdout) &&
+                     !sysResolve.Stdout.StartsWith("FAILED");
         log.AppendLine($"   → {(string.IsNullOrEmpty(sysResolve.Stdout) ? "no output" : sysResolve.Stdout)}");
         if (!string.IsNullOrEmpty(sysResolve.Stderr))
             log.AppendLine($"   stderr: {sysResolve.Stderr}");
 
+        // 2) DNS resolve via Google (bypass current DNS)
         log.AppendLine(string.Empty);
         log.AppendLine("2) Resolve discord.com  [Google 8.8.8.8 — bypass current DNS]");
         var googleResolve = await PowerShellService.RunAsync(
@@ -201,6 +207,7 @@ public static class DnsService
         if (!string.IsNullOrEmpty(googleResolve.Stderr))
             log.AppendLine($"   stderr: {googleResolve.Stderr}");
 
+        // 3) Ping
         log.AppendLine(string.Empty);
         log.AppendLine("3) Ping 8.8.8.8  [basic internet reachability]");
         var ping = await PowerShellService.RunAsync(
@@ -210,8 +217,11 @@ public static class DnsService
             "  $avg = [math]::Round(($p | Measure-Object -Property $prop -Average).Average,1); " +
             "  'Reachable  avg ' + $avg + ' ms (' + $p.Count + '/3)' " +
             "} catch { 'UNREACHABLE: ' + $_.Exception.Message }");
+        bool pingOk = !string.IsNullOrEmpty(ping.Stdout) &&
+                      ping.Stdout.Contains("Reachable");
         log.AppendLine($"   → {(string.IsNullOrEmpty(ping.Stdout) ? "no response" : ping.Stdout)}");
 
+        // 4) TCP connect
         log.AppendLine(string.Empty);
         log.AppendLine("4) TCP connect  discord.com:443");
         var tcp = await PowerShellService.RunAsync(
@@ -220,11 +230,13 @@ public static class DnsService
             "       -InformationLevel Quiet -ErrorAction Stop; " +
             "  if ($c) { 'SUCCESS — TCP 443 open' } else { 'BLOCKED — TCP 443 refused' } " +
             "} catch { 'FAILED: ' + $_.Exception.Message }");
+        bool tcpOk = !string.IsNullOrEmpty(tcp.Stdout) &&
+                     tcp.Stdout.Contains("SUCCESS");
         log.AppendLine($"   → {(string.IsNullOrEmpty(tcp.Stdout) ? "no response" : tcp.Stdout)}");
 
         log.AppendLine(string.Empty);
         log.AppendLine("══════════════════════════════════════════════════════");
-        return log.ToString();
+        return new DiscordTestResult(dnsOk, pingOk, tcpOk, log.ToString());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

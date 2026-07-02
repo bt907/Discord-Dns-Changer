@@ -760,6 +760,68 @@
             </ScrollViewer>
         </Grid>
 
+        <!-- ══ Success Overlay ═══════════════════════════════════════════════ -->
+        <!-- Covers rows 0-3, sits above everything, hidden by default -->
+        <Grid Grid.Row="0" Grid.RowSpan="4"
+              x:Name="SuccessOverlay"
+              Visibility="Collapsed"
+              Panel.ZIndex="99">
+            <!-- Dim backdrop -->
+            <Rectangle Fill="#CC000010"/>
+
+            <!-- Card -->
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="#131328"
+                    BorderBrush="#5865F2"
+                    BorderThickness="2"
+                    CornerRadius="18"
+                    Padding="48,40"
+                    MinWidth="420">
+                <Border.Effect>
+                    <DropShadowEffect Color="#5865F2" BlurRadius="40" ShadowDepth="0" Opacity="0.35"/>
+                </Border.Effect>
+                <StackPanel HorizontalAlignment="Center">
+
+                    <!-- Big checkmark -->
+                    <Border Width="80" Height="80" CornerRadius="40"
+                            Background="#1A3A28"
+                            BorderBrush="#3EC97E" BorderThickness="2.5"
+                            HorizontalAlignment="Center" Margin="0,0,0,20">
+                        <TextBlock Text="✓" FontSize="38" FontWeight="Bold"
+                                   Foreground="#3EC97E"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+
+                    <!-- Title -->
+                    <TextBlock Text="Discord is Reachable!"
+                               FontSize="24" FontWeight="Bold"
+                               Foreground="#EAEAF2"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,10"/>
+
+                    <!-- Sub message -->
+                    <TextBlock x:Name="SuccessSubText"
+                               Text="DNS resolved, internet reachable, TCP 443 open."
+                               FontSize="13"
+                               Foreground="#7878A8"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,28"/>
+
+                    <!-- Dismiss button -->
+                    <Button Content="Got it  ✓"
+                            Style="{StaticResource PrimaryBtn}"
+                            Background="#3EC97E"
+                            Padding="36,12"
+                            FontSize="14"
+                            HorizontalAlignment="Center"
+                            Click="DismissSuccess_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
         <!-- ══ Row 3 – Log panel ══════════════════════════════════════════════ -->
         <Border Grid.Row="3" Background="{StaticResource LogBgBrush}"
                 BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0"
