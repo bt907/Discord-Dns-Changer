@@ -290,21 +290,10 @@
                             Background="#12122A"
                             BorderBrush="{StaticResource CardBorderBrush}"
                             BorderThickness="1">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="DiscordBadgeText"
-                                       Text="● Discord: checking…"
-                                       Foreground="{StaticResource SubTextBrush}"
-                                       FontSize="11" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <Button x:Name="DiscordActionBtn"
-                                    Content="Download"
-                                    Visibility="Collapsed"
-                                    Margin="8,0,0,0"
-                                    Padding="8,2"
-                                    FontSize="10"
-                                    Style="{StaticResource PrimaryBtn}"
-                                    Click="DiscordAction_Click"/>
-                        </StackPanel>
+                        <TextBlock x:Name="DiscordBadgeText"
+                                   Text="● Discord: checking…"
+                                   Foreground="{StaticResource SubTextBrush}"
+                                   FontSize="11" FontWeight="SemiBold"/>
                     </Border>
 
                     <!-- Admin badge -->
@@ -644,51 +633,25 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- ── Discord ────────────────────────────────────── -->
-                    <TextBlock Text="DISCORD" Style="{StaticResource SectionLabel}"/>
+                    <!-- ── Discord Connectivity ───────────────────────── -->
+                    <TextBlock Text="DISCORD CONNECTIVITY" Style="{StaticResource SectionLabel}"/>
 
-                    <Border x:Name="DiscordPanel"
-                            Background="{StaticResource CardBrush}"
+                    <Border Background="{StaticResource CardBrush}"
                             BorderBrush="{StaticResource CardBorderBrush}"
                             BorderThickness="1" CornerRadius="10"
                             Padding="14,12" Margin="0,0,0,14">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock x:Name="DiscordStatusText"
-                                           Text="Checking Discord installation…"
-                                           Foreground="{StaticResource SubTextBrush}"
-                                           FontSize="12"/>
-                                <TextBlock x:Name="DiscordVersionText"
-                                           Text=""
-                                           Foreground="{StaticResource SubTextBrush}"
-                                           FontSize="10" Margin="0,2,0,0"
-                                           Visibility="Collapsed"/>
-                            </StackPanel>
-
-                            <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                        VerticalAlignment="Center">
-                                <!-- Launch button (shown when installed) -->
-                                <Button x:Name="LaunchDiscordBtn"
-                                        Content="Launch Discord"
-                                        Style="{StaticResource PrimaryBtn}"
-                                        Background="#5865F2"
-                                        Margin="0,0,6,0"
-                                        Visibility="Collapsed"
-                                        Click="LaunchDiscord_Click"/>
-                                <!-- Download button (shown when not installed) -->
-                                <Button x:Name="DownloadDiscordBtn"
-                                        Content="Download Discord"
-                                        Style="{StaticResource PrimaryBtn}"
-                                        Background="#5865F2"
-                                        Visibility="Collapsed"
-                                        Click="DiscordAction_Click"/>
-                            </StackPanel>
-                        </Grid>
+                        <StackPanel>
+                            <TextBlock Foreground="{StaticResource SubTextBrush}" FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Text="After applying a new DNS, use this to confirm Discord is actually reachable. Tests DNS resolution, ping, and TCP connection to discord.com."/>
+                            <Button x:Name="TestDiscordBtn"
+                                    Content="⚡  Test Discord Connection"
+                                    Style="{StaticResource PrimaryBtn}"
+                                    Background="#5865F2"
+                                    HorizontalAlignment="Left"
+                                    Margin="0,10,0,0"
+                                    Click="TestDiscord_Click"/>
+                        </StackPanel>
                     </Border>
 
                     <!-- ── Actions ─────────────────────────────────────── -->

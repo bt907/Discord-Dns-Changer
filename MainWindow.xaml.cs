@@ -13,10 +13,8 @@ public partial class MainWindow : Window
     // ── State ────────────────────────────────────────────────────────────────
 
     private readonly ObservableCollection<NetworkAdapterInfo> _adapters = new();
-    private DnsProvider? _selectedPreset;
     private bool _isLoading;
 
-    // Accent / neutral brushes reused for preset card selection highlighting
     private static readonly SolidColorBrush AccentBrush  = new(Color.FromRgb(0x5B, 0x6C, 0xF5));
     private static readonly SolidColorBrush NeutralBrush = new(Color.FromRgb(0x2E, 0x2E, 0x4A));
 
@@ -25,8 +23,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-
-        // Bind the adapter list to the ListBox
         AdapterListBox.ItemsSource = _adapters;
 
         Loaded += async (_, _) =>
@@ -44,29 +40,77 @@ public partial class MainWindow : Window
         if (AdminService.IsRunningAsAdmin())
         {
             AdminWarningPanel.Visibility = Visibility.Collapsed;
+            Log("INFO", "Running as Administrator.");
         }
         else
         {
             AdminWarningPanel.Visibility = Visibility.Visible;
 
-            // Update the badge to show "No Admin" state
             AdminBadge.Background   = new SolidColorBrush(Color.FromRgb(0x2A, 0x0A, 0x0A));
             AdminBadge.BorderBrush  = new SolidColorBrush(Color.FromRgb(0xE8, 0x50, 0x50));
-            AdminBadgeText.Text     = "● No Admin Rights";
+            AdminBadgeText.Text       = "● No Admin Rights";
             AdminBadgeText.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x50, 0x50));
 
-            // Disable mutating actions — user can still test / inspect
+            // DNS changes require elevation — disable mutation buttons
             ApplyBtn.IsEnabled       = false;
             RestoreBtn.IsEnabled     = false;
             ChkDisableIPv6.IsEnabled = false;
 
-            Log("[WARN] Not running as Administrator. DNS changes are disabled.");
-            Log("       Click \"Restart as Administrator\" to elevate.");
+            Log("WARN", "NOT running as Administrator.");
+            Log("WARN", "DNS changes will be BLOCKED by Windows until you restart as Administrator.");
+            Log("WARN", "Click the orange 'Restart as Administrator' button above.");
         }
     }
 
     private void RestartAdmin_Click(object sender, RoutedEventArgs e)
         => AdminService.RestartAsAdmin();
+
+    // ── Discord status ───────────────────────────────────────────────────────
+
+    private void CheckDiscordStatus()
+    {
+        var installed = DiscordService.IsDiscordInstalled();
+        var version   = DiscordService.GetDiscordVersion();
+
+        if (installed)
+        {
+            DiscordBadge.Background  = new SolidColorBrush(Color.FromRgb(0x10, 0x10, 0x3A));
+            DiscordBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
+            DiscordBadgeText.Text       = $"● Discord {version ?? "installed"}";
+            DiscordBadgeText.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x99, 0xFF));
+            Log("INFO", $"Discord detected — version {version ?? "unknown"}.");
+        }
+        else
+        {
+            DiscordBadge.Background  = new SolidColorBrush(Color.FromRgb(0x2A, 0x15, 0x0A));
+            DiscordBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(0xE8, 0x50, 0x50));
+            DiscordBadgeText.Text       = "● Discord: Not installed";
+            DiscordBadgeText.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x80, 0x70));
+            Log("WARN", "Discord not detected on this machine.");
+        }
+    }
+
+    // ── Test Discord connectivity ─────────────────────────────────────────────
+
+    private async void TestDiscord_Click(object sender, RoutedEventArgs e)
+    {
+        TestDiscordBtn.IsEnabled = false;
+        Log("----", "Starting Discord connectivity test…");
+
+        try
+        {
+            var result = await DnsService.TestDiscordConnectivityAsync();
+            LogBlock(result);
+        }
+        catch (Exception ex)
+        {
+            Log("ERR ", $"Test threw exception: {ex.Message}");
+        }
+        finally
+        {
+            TestDiscordBtn.IsEnabled = true;
+        }
+    }
 
     // ── Adapter loading ──────────────────────────────────────────────────────
 
@@ -76,7 +120,7 @@ public partial class MainWindow : Window
         _isLoading = true;
         RefreshBtn.IsEnabled = false;
 
-        Log("Scanning for active physical adapters…");
+        Log("----", "Scanning for active physical adapters…");
 
         try
         {
@@ -90,21 +134,22 @@ public partial class MainWindow : Window
             {
                 NoAdaptersText.Visibility = Visibility.Visible;
                 StatusLabel.Text = "Current DNS: No active adapters found";
-                Log("[WARN] No active physical adapters found.");
+                Log("WARN", "No active physical adapters found.");
             }
             else
             {
                 NoAdaptersText.Visibility = Visibility.Collapsed;
-                Log($"Found {_adapters.Count} active adapter(s).");
+                Log("INFO", $"Found {_adapters.Count} adapter(s):");
+                foreach (var a in _adapters)
+                    Log("    ", $"{a.Name}  |  IPv4: {a.IPv4DnsDisplay}  |  IPv6: {a.IPv6DnsDisplay}");
 
-                // Auto-select first adapter
                 if (AdapterListBox.SelectedItem is null)
                     AdapterListBox.SelectedIndex = 0;
             }
         }
         catch (Exception ex)
         {
-            Log($"[ERROR] Failed to load adapters: {ex.Message}");
+            Log("ERR ", $"Failed to load adapters: {ex.Message}");
         }
         finally
         {
@@ -121,17 +166,16 @@ public partial class MainWindow : Window
         if (AdapterListBox.SelectedItem is NetworkAdapterInfo adapter)
         {
             UpdateStatusLabel(adapter);
-            Log($"Selected: {adapter.Name}  ({adapter.Description})");
+            Log("INFO", $"Selected adapter: {adapter.Name}  ({adapter.Description})");
+            Log("    ", $"IPv4 DNS: {adapter.IPv4DnsDisplay}");
+            Log("    ", $"IPv6 DNS: {adapter.IPv6DnsDisplay}");
         }
     }
 
     private void UpdateStatusLabel(NetworkAdapterInfo adapter)
     {
-        var label = adapter.CurrentDnsLabel;
-        var detail = adapter.IPv4Dns.Count > 0
-            ? $"  [{adapter.IPv4DnsDisplay}]"
-            : string.Empty;
-
+        var label  = adapter.CurrentDnsLabel;
+        var detail = adapter.IPv4Dns.Count > 0 ? $"  [{adapter.IPv4DnsDisplay}]" : string.Empty;
         StatusLabel.Text = $"Current DNS: {label}{detail}";
     }
 
@@ -148,9 +192,7 @@ public partial class MainWindow : Window
 
     private void SelectPreset(DnsProvider provider, Button clickedBtn)
     {
-        _selectedPreset = provider;
-
-        // Reset all card borders to neutral
+        // Reset all card borders
         GoogleBtn.BorderBrush     = NeutralBrush;
         CloudflareBtn.BorderBrush = NeutralBrush;
         Quad9Btn.BorderBrush      = NeutralBrush;
@@ -158,53 +200,48 @@ public partial class MainWindow : Window
         CloudflareBtn.BorderThickness = new Thickness(1);
         Quad9Btn.BorderThickness      = new Thickness(1);
 
-        // Highlight the selected card
         clickedBtn.BorderBrush     = AccentBrush;
         clickedBtn.BorderThickness = new Thickness(2);
 
-        // Fill in the text fields so the user can review or tweak before applying
+        // Fill fields so the user can review before applying
         TxtIPv4Primary.Text   = provider.PrimaryIPv4;
         TxtIPv4Secondary.Text = provider.SecondaryIPv4;
         TxtIPv6Primary.Text   = provider.PrimaryIPv6;
         TxtIPv6Secondary.Text = provider.SecondaryIPv6;
 
-        Log($"Preset selected: {provider.Name}  " +
-            $"(IPv4 {provider.PrimaryIPv4} / {provider.SecondaryIPv4})");
+        Log("INFO", $"Preset: {provider.Name}  —  IPv4: {provider.PrimaryIPv4} / {provider.SecondaryIPv4}");
+        Log("    ",  $"IPv6: {provider.PrimaryIPv6} / {provider.SecondaryIPv6}");
     }
 
     // ── Apply DNS ────────────────────────────────────────────────────────────
 
     private async void Apply_Click(object sender, RoutedEventArgs e)
     {
-        // Gather and validate inputs
         var primaryIPv4   = TxtIPv4Primary.Text.Trim();
         var secondaryIPv4 = TxtIPv4Secondary.Text.Trim();
         var primaryIPv6   = TxtIPv6Primary.Text.Trim();
         var secondaryIPv6 = TxtIPv6Secondary.Text.Trim();
         bool setIPv6      = ChkSetIPv6.IsChecked == true;
 
+        // ── Validate ─────────────────────────────────────────────────────────
         if (string.IsNullOrEmpty(primaryIPv4))
         {
-            MessageBox.Show(
-                "Please select a DNS preset or enter a Primary IPv4 address.",
+            MessageBox.Show("Please select a DNS preset or enter a Primary IPv4 address.",
                 "Missing DNS", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-
         if (!IPAddress.TryParse(primaryIPv4, out _))
         {
             MessageBox.Show($"Invalid Primary IPv4 address: {primaryIPv4}",
                 "Invalid Input", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-
         if (!string.IsNullOrEmpty(secondaryIPv4) && !IPAddress.TryParse(secondaryIPv4, out _))
         {
             MessageBox.Show($"Invalid Secondary IPv4 address: {secondaryIPv4}",
                 "Invalid Input", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-
         if (setIPv6 && !string.IsNullOrEmpty(primaryIPv6) && !IPAddress.TryParse(primaryIPv6, out _))
         {
             MessageBox.Show($"Invalid Primary IPv6 address: {primaryIPv6}",
@@ -212,14 +249,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (setIPv6 && !string.IsNullOrEmpty(secondaryIPv6) && !IPAddress.TryParse(secondaryIPv6, out _))
-        {
-            MessageBox.Show($"Invalid Secondary IPv6 address: {secondaryIPv6}",
-                "Invalid Input", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        // Determine target adapters
         var targets = GetTargetAdapters();
         if (targets is null) return;
 
@@ -229,21 +258,20 @@ public partial class MainWindow : Window
         {
             foreach (var adapter in targets)
             {
-                Log($"─── Applying DNS to {adapter.Name} ───");
-                var (_, logText) = await DnsService.ApplyDnsAsync(
-                    adapter.Name,
-                    primaryIPv4,   secondaryIPv4,
-                    primaryIPv6,   secondaryIPv6,
-                    setIPv6);
-                Log(logText);
+                Log("====", $"Applying DNS to [{adapter.Name}]");
+                var (success, logText) = await DnsService.ApplyDnsAsync(
+                    adapter.Name, primaryIPv4, secondaryIPv4, primaryIPv6, secondaryIPv6, setIPv6);
+                LogBlock(logText);
+                Log(success ? " OK " : "FAIL", success
+                    ? $"DNS change completed on [{adapter.Name}]."
+                    : $"DNS change had errors on [{adapter.Name}]. See output above.");
             }
 
-            // Refresh the adapter list so the UI reflects the new DNS
             await LoadAdaptersAsync();
         }
         catch (Exception ex)
         {
-            Log($"[ERROR] {ex.Message}");
+            Log("ERR ", $"Unhandled exception: {ex.Message}");
         }
         finally
         {
@@ -258,13 +286,10 @@ public partial class MainWindow : Window
         var targets = GetTargetAdapters();
         if (targets is null) return;
 
-        var adapterLabel = ChkApplyAll.IsChecked == true
-            ? "all active adapters"
-            : targets[0].Name;
+        var label = ChkApplyAll.IsChecked == true ? "all active adapters" : targets[0].Name;
 
         var confirm = MessageBox.Show(
-            $"Reset DNS to automatic (DHCP) for {adapterLabel}?\n\n" +
-            "This will remove any manually configured DNS servers.",
+            $"Reset DNS to automatic (DHCP) for {label}?\n\nThis removes any manually configured DNS servers.",
             "Confirm Reset", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (confirm != MessageBoxResult.Yes) return;
@@ -275,16 +300,19 @@ public partial class MainWindow : Window
         {
             foreach (var adapter in targets)
             {
-                Log($"─── Restoring DNS for {adapter.Name} ───");
-                var (_, logText) = await DnsService.RestoreAutomaticDnsAsync(adapter.Name);
-                Log(logText);
+                Log("====", $"Restoring automatic DNS on [{adapter.Name}]");
+                var (success, logText) = await DnsService.RestoreAutomaticDnsAsync(adapter.Name);
+                LogBlock(logText);
+                Log(success ? " OK " : "FAIL", success
+                    ? $"Automatic DNS restored on [{adapter.Name}]."
+                    : $"Restore had errors on [{adapter.Name}].");
             }
 
             await LoadAdaptersAsync();
         }
         catch (Exception ex)
         {
-            Log($"[ERROR] {ex.Message}");
+            Log("ERR ", $"Unhandled exception: {ex.Message}");
         }
         finally
         {
@@ -292,26 +320,19 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── Test DNS ─────────────────────────────────────────────────────────────
+    // ── Generic DNS test ─────────────────────────────────────────────────────
 
     private async void Test_Click(object sender, RoutedEventArgs e)
     {
         TestBtn.IsEnabled = false;
-        Log("─── Running DNS connectivity tests ───");
-
+        Log("----", "Running DNS connectivity test…");
         try
         {
-            var result = await DnsService.TestDnsAsync();
-            Log(result);
+            var result = await DnsService.TestDiscordConnectivityAsync();
+            LogBlock(result);
         }
-        catch (Exception ex)
-        {
-            Log($"[ERROR] Test failed: {ex.Message}");
-        }
-        finally
-        {
-            TestBtn.IsEnabled = true;
-        }
+        catch (Exception ex) { Log("ERR ", ex.Message); }
+        finally { TestBtn.IsEnabled = true; }
     }
 
     // ── Disable / enable IPv6 ────────────────────────────────────────────────
@@ -329,8 +350,8 @@ public partial class MainWindow : Window
 
         var confirm = MessageBox.Show(
             $"Disable IPv6 on \"{adapter.Name}\"?\n\n" +
-            "This disables IPv6 connectivity on the adapter.\n" +
-            "Only proceed if setting the IPv6 DNS did not solve the problem.",
+            "This removes IPv6 connectivity from the adapter entirely.\n" +
+            "Only do this if setting the IPv6 DNS did not fix Discord.",
             "Confirm Disable IPv6", MessageBoxButton.YesNo, MessageBoxImage.Warning);
 
         if (confirm != MessageBoxResult.Yes)
@@ -339,9 +360,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        Log($"─── Disabling IPv6 on {adapter.Name} ───");
+        Log("====", $"Disabling IPv6 on [{adapter.Name}]");
         var (_, logText) = await DnsService.DisableIPv6Async(adapter.Name);
-        Log(logText);
+        LogBlock(logText);
     }
 
     private async void ChkDisableIPv6_Unchecked(object sender, RoutedEventArgs e)
@@ -349,119 +370,50 @@ public partial class MainWindow : Window
         var adapter = AdapterListBox.SelectedItem as NetworkAdapterInfo;
         if (adapter is null) return;
 
-        // When the user unchecks the box, re-enable IPv6
-        Log($"─── Re-enabling IPv6 on {adapter.Name} ───");
+        Log("====", $"Re-enabling IPv6 on [{adapter.Name}]");
         var (_, logText) = await DnsService.EnableIPv6Async(adapter.Name);
-        Log(logText);
+        LogBlock(logText);
     }
 
     // ── Log helpers ──────────────────────────────────────────────────────────
 
-    /// <summary>Appends a timestamped line to the log panel and scrolls to the bottom.</summary>
-    private void Log(string message)
+    /// <summary>
+    /// Appends a single log line with timestamp and a 4-char level tag.
+    /// Format:  [HH:mm:ss] [INFO] message
+    /// </summary>
+    private void Log(string level, string message)
     {
-        if (string.IsNullOrWhiteSpace(message)) return;
-
-        var timestamp = DateTime.Now.ToString("HH:mm:ss");
+        var ts   = DateTime.Now.ToString("HH:mm:ss");
+        var line = $"[{ts}] [{level}] {message}{Environment.NewLine}";
 
         Dispatcher.Invoke(() =>
         {
-            foreach (var line in message.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            {
-                LogBox.AppendText($"[{timestamp}] {line.TrimEnd()}{Environment.NewLine}");
-            }
+            LogBox.AppendText(line);
             LogBox.ScrollToEnd();
         });
+    }
+
+    /// <summary>
+    /// Appends a multi-line block from a service method, giving each
+    /// individual line its own timestamp so nothing gets lost.
+    /// </summary>
+    private void LogBlock(string block)
+    {
+        if (string.IsNullOrWhiteSpace(block)) return;
+
+        foreach (var line in block.Split('\n'))
+        {
+            var trimmed = line.TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+            Log("    ", trimmed);
+        }
     }
 
     private void ClearLog_Click(object sender, RoutedEventArgs e)
         => LogBox.Clear();
 
-    // ── Discord ──────────────────────────────────────────────────────────────
-
-    private void CheckDiscordStatus()
-    {
-        var installed = DiscordService.IsDiscordInstalled();
-        var version   = DiscordService.GetDiscordVersion();
-
-        if (installed)
-        {
-            // Header badge
-            DiscordBadge.Background  = new SolidColorBrush(Color.FromRgb(0x10, 0x10, 0x3A));
-            DiscordBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
-            DiscordBadgeText.Text       = "● Discord: Installed";
-            DiscordBadgeText.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x99, 0xFF));
-            DiscordActionBtn.Visibility = Visibility.Collapsed;
-
-            // Panel
-            DiscordStatusText.Text       = "Discord is installed on this computer.";
-            DiscordStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x99, 0xFF));
-            if (!string.IsNullOrEmpty(version))
-            {
-                DiscordVersionText.Text       = $"Version {version}";
-                DiscordVersionText.Visibility = Visibility.Visible;
-            }
-            LaunchDiscordBtn.Visibility   = Visibility.Visible;
-            DownloadDiscordBtn.Visibility = Visibility.Collapsed;
-
-            Log($"Discord detected. Version: {version ?? "unknown"}");
-        }
-        else
-        {
-            // Header badge — warn
-            DiscordBadge.Background  = new SolidColorBrush(Color.FromRgb(0x2A, 0x15, 0x0A));
-            DiscordBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(0xE8, 0x50, 0x50));
-            DiscordBadgeText.Text       = "● Discord: Not found";
-            DiscordBadgeText.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x80, 0x70));
-            DiscordActionBtn.Content    = "Download";
-            DiscordActionBtn.Visibility = Visibility.Visible;
-
-            // Panel
-            DiscordStatusText.Text       = "Discord is not installed on this computer.";
-            DiscordStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x80, 0x70));
-            DownloadDiscordBtn.Visibility = Visibility.Visible;
-            LaunchDiscordBtn.Visibility   = Visibility.Collapsed;
-
-            Log("[INFO] Discord not detected. Use the Download button to install it.");
-        }
-    }
-
-    /// <summary>Opens the Discord download page — used by both the header badge and the panel button.</summary>
-    private void DiscordAction_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            DiscordService.OpenDownloadPage();
-            Log($"Opened Discord download page: {DiscordService.DownloadUrl}");
-        }
-        catch (Exception ex)
-        {
-            Log($"[ERROR] Could not open browser: {ex.Message}");
-        }
-    }
-
-    private void LaunchDiscord_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (!DiscordService.LaunchDiscord())
-                Log("[WARN] Discord executable not found. Try reinstalling Discord.");
-            else
-                Log("Discord launched.");
-        }
-        catch (Exception ex)
-        {
-            Log($"[ERROR] Could not launch Discord: {ex.Message}");
-        }
-    }
-
     // ── Utility ──────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns the list of target adapters based on the current selection and
-    /// the "Apply to all" checkbox.  Shows a warning and returns null if no
-    /// adapter is selected and "Apply to all" is off.
-    /// </summary>
     private List<NetworkAdapterInfo>? GetTargetAdapters()
     {
         if (ChkApplyAll.IsChecked == true)
@@ -471,8 +423,7 @@ public partial class MainWindow : Window
             return new List<NetworkAdapterInfo> { selected };
 
         MessageBox.Show(
-            "Please select an adapter from the left panel,\n" +
-            "or check \"Apply to all active adapters\".",
+            "Please select an adapter from the left panel,\nor tick \"Apply to all active adapters\".",
             "No Adapter Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
 
         return null;
