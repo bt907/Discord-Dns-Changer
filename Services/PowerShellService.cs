@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DNS_Switcher.Services;
 
-/// <summary>Result of a PowerShell command execution.</summary>
 public class PowerShellResult
 {
     public int    ExitCode  { get; set; }
@@ -11,37 +11,27 @@ public class PowerShellResult
     public string Stderr    { get; set; } = string.Empty;
     public bool   TimedOut  { get; set; }
 
-    /// <summary>True when the process exited with code 0 and produced no stderr output.</summary>
     public bool Success => !TimedOut && ExitCode == 0 && string.IsNullOrWhiteSpace(Stderr);
 }
 
 /// <summary>
-/// Executes PowerShell commands asynchronously using System.Diagnostics.Process.
-/// Uses -EncodedCommand to avoid quoting/escaping issues with complex commands.
-/// A hard 30-second timeout prevents the UI from freezing if powershell.exe hangs.
+/// Runs PowerShell commands via -EncodedCommand.
+/// Strips CLIXML from stderr so log output is always human-readable.
+/// Hard 30-second timeout prevents UI freeze if powershell.exe hangs.
 /// </summary>
 public static class PowerShellService
 {
-    /// <summary>Default hard timeout per command. Prevents the UI from freezing forever.</summary>
     public static TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
-    /// <summary>
-    /// Runs <paramref name="command"/> in a hidden PowerShell process.
-    /// stdout and stderr are captured and returned in the result.
-    /// If the process does not finish within <see cref="DefaultTimeout"/> it is killed
-    /// and the result has <c>TimedOut = true</c>.
-    /// </summary>
     public static async Task<PowerShellResult> RunAsync(string command)
     {
-        // Base64-encode as UTF-16 LE — the format -EncodedCommand expects
-        var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+        // Set console output encoding inside the PS session so we read UTF-8 correctly.
+        // Do NOT touch [Console]::Error — AutoFlush doesn't exist on PS 5.1's error stream.
+        var fullCommand =
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
+            command;
 
-        // Force PS output to UTF-8 so we read it correctly regardless of system locale.
-        // [Console]::OutputEncoding must be set inside the PS session itself.
-        var fullCommand = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " +
-                          "[Console]::Error.AutoFlush = $true; " +
-                          command;
-        encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(fullCommand));
+        var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(fullCommand));
 
         var startInfo = new ProcessStartInfo
         {
@@ -51,7 +41,6 @@ public static class PowerShellService
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             CreateNoWindow         = true,
-            // Read bytes as UTF-8 — matches what we set inside the PS session above
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding  = Encoding.UTF8
         };
@@ -81,7 +70,6 @@ public static class PowerShellService
         }
         catch (OperationCanceledException)
         {
-            // Timed out — kill the process tree to avoid orphaned powershell windows
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
 
             return new PowerShellResult
@@ -97,7 +85,42 @@ public static class PowerShellService
         {
             ExitCode = process.ExitCode,
             Stdout   = stdoutBuilder.ToString().Trim(),
-            Stderr   = stderrBuilder.ToString().Trim()
+            // CLIXML is PowerShell 5.1's serialised error format when stderr is redirected.
+            // Strip it so the log shows plain English instead of XML noise.
+            Stderr   = CleanStderr(stderrBuilder.ToString().Trim())
         };
+    }
+
+    // ── CLIXML cleaner ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// PowerShell 5.1 wraps stderr in CLIXML when redirected:
+    ///   #&lt; CLIXML &lt;Objs ...&gt;&lt;S S="Error"&gt;message&lt;/S&gt;&lt;/Objs&gt;
+    /// This method extracts the plain-text error strings from that XML.
+    /// If the string is not CLIXML, it is returned unchanged.
+    /// </summary>
+    private static string CleanStderr(string raw)
+    {
+        if (!raw.Contains("<S S=\"Error\">"))
+            return raw;
+
+        var matches = Regex.Matches(raw, @"<S S=""Error"">(.*?)</S>",
+                                    RegexOptions.Singleline);
+
+        var lines = matches
+            .Cast<Match>()
+            .Select(m => m.Groups[1].Value
+                .Replace("_x000D__x000A_", " ")   // embedded CRLF tokens
+                .Replace("&lt;",  "<")
+                .Replace("&gt;",  ">")
+                .Replace("&amp;", "&")
+                .Replace("&apos;", "'")
+                .Replace("&quot;", "\"")
+                .Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct()
+            .ToList();
+
+        return lines.Count > 0 ? string.Join("\n", lines) : string.Empty;
     }
 }

@@ -1,12 +1,18 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 
 namespace DNS_Switcher.Services;
 
 /// <summary>
-/// High-level DNS operations.
-/// Every method returns a detailed log string so the caller can show exactly
-/// what happened — including the raw PowerShell output and a verification
-/// step that reads the DNS back after applying to confirm it actually changed.
+/// High-level DNS operations with full logging, read-back verification,
+/// and compatibility with all Windows 10 / 11 PowerShell builds.
+///
+/// Key design decision:
+///   Set-DnsClientServerAddress does NOT support -AddressFamily on some
+///   Windows / PS builds (throws "parameter not found"). We therefore pass
+///   ALL desired server addresses (IPv4 + IPv6) in a single call and let
+///   Windows route them to the correct interface family automatically.
 /// </summary>
 public static class DnsService
 {
@@ -22,91 +28,60 @@ public static class DnsService
         bool success = true;
 
         // ── Read BEFORE ──────────────────────────────────────────────────────
-        log.AppendLine($"BEFORE — reading current DNS on [{adapterName}]");
-        var beforeIPv4 = await ReadCurrentDnsAsync(adapterName, "IPv4");
-        var beforeIPv6 = await ReadCurrentDnsAsync(adapterName, "IPv6");
-        log.AppendLine($"  IPv4 was: {beforeIPv4}");
-        log.AppendLine($"  IPv6 was: {beforeIPv6}");
+        log.AppendLine($"BEFORE on [{adapterName}]");
+        var (beforeV4, beforeV6) = await ReadDnsAsync(adapterName);
+        log.AppendLine($"  IPv4: {beforeV4}");
+        log.AppendLine($"  IPv6: {beforeV6}");
         log.AppendLine(string.Empty);
 
-        // ── Apply IPv4 ───────────────────────────────────────────────────────
-        var ipv4Addresses = string.IsNullOrEmpty(secondaryIPv4)
-            ? $"'{primaryIPv4}'"
-            : $"'{primaryIPv4}','{secondaryIPv4}'";
+        // ── Build combined address list ───────────────────────────────────────
+        // -AddressFamily is NOT available in all Windows PS builds.
+        // We pass all addresses in one call; Windows applies IPv4 addresses to
+        // the IPv4 interface and IPv6 addresses to the IPv6 interface automatically.
+        var allAddresses = new List<string> { primaryIPv4 };
+        if (!string.IsNullOrEmpty(secondaryIPv4)) allAddresses.Add(secondaryIPv4);
 
-        // $ErrorActionPreference = 'Stop' converts non-terminating PS errors into
-        // terminating ones, so the process exits with code != 0 on any failure.
-        // Without this, Set-DnsClientServerAddress can silently "succeed" (exit 0)
-        // even when Windows rejects the change (e.g. access denied).
-        var ipv4Cmd =
+        if (setIPv6)
+        {
+            if (!string.IsNullOrEmpty(primaryIPv6))   allAddresses.Add(primaryIPv6);
+            if (!string.IsNullOrEmpty(secondaryIPv6)) allAddresses.Add(secondaryIPv6);
+        }
+
+        var addressArgs = string.Join(",", allAddresses.Select(a => $"'{a}'"));
+        var setCmd =
             $"$ErrorActionPreference = 'Stop'; " +
             $"Set-DnsClientServerAddress " +
             $"-InterfaceAlias '{EscapePs(adapterName)}' " +
-            $"-AddressFamily IPv4 " +
-            $"-ServerAddresses {ipv4Addresses}";
+            $"-ServerAddresses {addressArgs}";
 
-        log.AppendLine($"CMD (IPv4): {ipv4Cmd}");
-        var ipv4Result = await PowerShellService.RunAsync(ipv4Cmd);
-        LogPsResult(log, ipv4Result);
+        log.AppendLine($"CMD: {setCmd}");
+        var setResult = await PowerShellService.RunAsync(setCmd);
+        LogPsResult(log, setResult);
 
-        if (ipv4Result.ExitCode == 0)
+        if (setResult.ExitCode == 0)
         {
-            var afterIPv4 = await ReadCurrentDnsAsync(adapterName, "IPv4");
-            log.AppendLine($"  VERIFY IPv4: {afterIPv4}");
+            // ── Verify ───────────────────────────────────────────────────────
+            var (afterV4, afterV6) = await ReadDnsAsync(adapterName);
+            log.AppendLine($"  AFTER IPv4: {afterV4}");
+            log.AppendLine($"  AFTER IPv6: {afterV6}");
 
-            if (afterIPv4.Contains(primaryIPv4))
-                log.AppendLine($"  [OK] IPv4 DNS confirmed → {afterIPv4}");
-            else
-                log.AppendLine($"  [WARN] IPv4 DNS set but read-back shows: {afterIPv4} (may need a moment)");
+            bool v4ok = afterV4.Contains(primaryIPv4);
+            log.AppendLine(v4ok
+                ? $"  [OK] DNS confirmed → IPv4: {afterV4}"
+                : $"  [WARN] Read-back IPv4 shows: {afterV4}  (may need a moment to update)");
         }
         else
         {
-            log.AppendLine($"  [FAIL] IPv4 DNS was NOT changed.");
+            log.AppendLine("  [FAIL] DNS was NOT changed. See error above.");
             success = false;
         }
 
         log.AppendLine(string.Empty);
 
-        // ── Apply IPv6 (optional) ────────────────────────────────────────────
-        if (setIPv6 && !string.IsNullOrEmpty(primaryIPv6))
-        {
-            var ipv6Addresses = string.IsNullOrEmpty(secondaryIPv6)
-                ? $"'{primaryIPv6}'"
-                : $"'{primaryIPv6}','{secondaryIPv6}'";
-
-            var ipv6Cmd =
-                $"$ErrorActionPreference = 'Stop'; " +
-                $"Set-DnsClientServerAddress " +
-                $"-InterfaceAlias '{EscapePs(adapterName)}' " +
-                $"-AddressFamily IPv6 " +
-                $"-ServerAddresses {ipv6Addresses}";
-
-            log.AppendLine($"CMD (IPv6): {ipv6Cmd}");
-            var ipv6Result = await PowerShellService.RunAsync(ipv6Cmd);
-            LogPsResult(log, ipv6Result);
-
-            if (ipv6Result.ExitCode == 0)
-            {
-                var afterIPv6 = await ReadCurrentDnsAsync(adapterName, "IPv6");
-                log.AppendLine($"  VERIFY IPv6: {afterIPv6}");
-                log.AppendLine(afterIPv6.Contains(primaryIPv6.Split(':')[0])
-                    ? $"  [OK] IPv6 DNS confirmed → {afterIPv6}"
-                    : $"  [WARN] IPv6 read-back: {afterIPv6}");
-            }
-            else
-            {
-                // IPv6 failure is a warning, not fatal — adapter may not have IPv6
-                log.AppendLine("  [WARN] IPv6 DNS change failed (adapter may not support IPv6).");
-            }
-
-            log.AppendLine(string.Empty);
-        }
-
         // ── Flush DNS cache ──────────────────────────────────────────────────
         log.AppendLine("CMD: ipconfig /flushdns");
         var flush = await PowerShellService.RunAsync("ipconfig /flushdns");
         LogPsResult(log, flush);
-
         log.AppendLine(flush.ExitCode == 0
             ? "  [OK] DNS resolver cache flushed."
             : $"  [WARN] DNS flush exited {flush.ExitCode}");
@@ -120,9 +95,10 @@ public static class DnsService
     {
         var log = new StringBuilder();
 
-        var beforeIPv4 = await ReadCurrentDnsAsync(adapterName, "IPv4");
-        log.AppendLine($"BEFORE IPv4: {beforeIPv4}");
+        var (beforeV4, _) = await ReadDnsAsync(adapterName);
+        log.AppendLine($"BEFORE IPv4: {beforeV4}");
 
+        // -ResetServerAddresses works on all Windows versions, no -AddressFamily needed
         var cmd =
             $"$ErrorActionPreference = 'Stop'; " +
             $"Set-DnsClientServerAddress " +
@@ -135,15 +111,13 @@ public static class DnsService
 
         if (result.ExitCode != 0)
         {
-            log.AppendLine($"  [FAIL] Could not restore automatic DNS.");
+            log.AppendLine("  [FAIL] Could not restore automatic DNS.");
             return (false, log.ToString());
         }
 
-        var afterIPv4 = await ReadCurrentDnsAsync(adapterName, "IPv4");
-        log.AppendLine($"  AFTER IPv4: {afterIPv4}");
-        log.AppendLine(afterIPv4 == "(automatic)" || string.IsNullOrEmpty(afterIPv4)
-            ? "  [OK] DNS restored to automatic (DHCP)."
-            : $"  [OK] DNS reset on {adapterName}. Current: {afterIPv4}");
+        var (afterV4, _) = await ReadDnsAsync(adapterName);
+        log.AppendLine($"  AFTER IPv4: {afterV4}");
+        log.AppendLine($"  [OK] DNS reset on {adapterName}.");
 
         log.AppendLine(string.Empty);
         log.AppendLine("CMD: ipconfig /flushdns");
@@ -196,17 +170,11 @@ public static class DnsService
 
     // ── Discord connectivity test ────────────────────────────────────────────
 
-    /// <summary>
-    /// Tests whether Discord can actually be reached after a DNS change.
-    /// Resolves discord.com via system DNS AND via Google 8.8.8.8, pings 8.8.8.8,
-    /// and attempts a TCP connection to Discord's gateway (162.159.x.x:443).
-    /// </summary>
     public static async Task<string> TestDiscordConnectivityAsync()
     {
         var log = new StringBuilder();
         log.AppendLine("══ Discord Connectivity Test ══════════════════════════");
 
-        // 1. Resolve discord.com using the current system DNS
         log.AppendLine(string.Empty);
         log.AppendLine("1) Resolve discord.com  [system DNS]");
         var sysResolve = await PowerShellService.RunAsync(
@@ -214,12 +182,12 @@ public static class DnsService
             "  $r = Resolve-DnsName discord.com -ErrorAction Stop | " +
             "       Where-Object { $_.IPAddress } | " +
             "       Select-Object -ExpandProperty IPAddress -First 4; " +
-            "  if ($r) { $r -join ', ' } else { 'No A/AAAA records returned' } " +
-            "} catch { 'FAILED — ' + $_.Exception.Message }");
+            "  if ($r) { $r -join ', ' } else { 'No records returned' } " +
+            "} catch { 'FAILED: ' + $_.Exception.Message }");
         log.AppendLine($"   → {(string.IsNullOrEmpty(sysResolve.Stdout) ? "no output" : sysResolve.Stdout)}");
-        if (!string.IsNullOrEmpty(sysResolve.Stderr)) log.AppendLine($"   stderr: {sysResolve.Stderr}");
+        if (!string.IsNullOrEmpty(sysResolve.Stderr))
+            log.AppendLine($"   stderr: {sysResolve.Stderr}");
 
-        // 2. Resolve discord.com via Google 8.8.8.8 (bypass current DNS)
         log.AppendLine(string.Empty);
         log.AppendLine("2) Resolve discord.com  [Google 8.8.8.8 — bypass current DNS]");
         var googleResolve = await PowerShellService.RunAsync(
@@ -227,11 +195,12 @@ public static class DnsService
             "  $r = Resolve-DnsName discord.com -Server 8.8.8.8 -ErrorAction Stop | " +
             "       Where-Object { $_.IPAddress } | " +
             "       Select-Object -ExpandProperty IPAddress -First 4; " +
-            "  if ($r) { $r -join ', ' } else { 'No A/AAAA records returned' } " +
-            "} catch { 'FAILED — ' + $_.Exception.Message }");
+            "  if ($r) { $r -join ', ' } else { 'No records returned' } " +
+            "} catch { 'FAILED: ' + $_.Exception.Message }");
         log.AppendLine($"   → {(string.IsNullOrEmpty(googleResolve.Stdout) ? "no output" : googleResolve.Stdout)}");
+        if (!string.IsNullOrEmpty(googleResolve.Stderr))
+            log.AppendLine($"   stderr: {googleResolve.Stderr}");
 
-        // 3. Ping 8.8.8.8 (basic internet check)
         log.AppendLine(string.Empty);
         log.AppendLine("3) Ping 8.8.8.8  [basic internet reachability]");
         var ping = await PowerShellService.RunAsync(
@@ -240,17 +209,17 @@ public static class DnsService
             "  $prop = if ($p[0].PSObject.Properties['Latency']) { 'Latency' } else { 'ResponseTime' }; " +
             "  $avg = [math]::Round(($p | Measure-Object -Property $prop -Average).Average,1); " +
             "  'Reachable  avg ' + $avg + ' ms (' + $p.Count + '/3)' " +
-            "} catch { 'UNREACHABLE — ' + $_.Exception.Message }");
+            "} catch { 'UNREACHABLE: ' + $_.Exception.Message }");
         log.AppendLine($"   → {(string.IsNullOrEmpty(ping.Stdout) ? "no response" : ping.Stdout)}");
 
-        // 4. TCP connect to Discord's HTTPS port
         log.AppendLine(string.Empty);
         log.AppendLine("4) TCP connect  discord.com:443");
         var tcp = await PowerShellService.RunAsync(
             "try { " +
-            "  $c = Test-NetConnection -ComputerName discord.com -Port 443 -InformationLevel Quiet -ErrorAction Stop; " +
+            "  $c = Test-NetConnection -ComputerName discord.com -Port 443 " +
+            "       -InformationLevel Quiet -ErrorAction Stop; " +
             "  if ($c) { 'SUCCESS — TCP 443 open' } else { 'BLOCKED — TCP 443 refused' } " +
-            "} catch { 'FAILED — ' + $_.Exception.Message }");
+            "} catch { 'FAILED: ' + $_.Exception.Message }");
         log.AppendLine($"   → {(string.IsNullOrEmpty(tcp.Stdout) ? "no response" : tcp.Stdout)}");
 
         log.AppendLine(string.Empty);
@@ -261,31 +230,44 @@ public static class DnsService
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Reads the current DNS addresses for a specific address family.
-    /// Returns "(automatic)" when no manual DNS is configured.
+    /// Reads ALL current DNS addresses for an adapter, then splits them into
+    /// IPv4 and IPv6 lists using C# IPAddress parsing (no -AddressFamily needed).
     /// </summary>
-    public static async Task<string> ReadCurrentDnsAsync(string adapterName, string family)
+    public static async Task<(string ipv4, string ipv6)> ReadDnsAsync(string adapterName)
     {
+        // Without -AddressFamily, Get-DnsClientServerAddress returns both families.
+        // We expand all ServerAddresses into one flat list, then classify in C#.
         var cmd =
-            $"$a = (Get-DnsClientServerAddress " +
+            $"Get-DnsClientServerAddress " +
             $"-InterfaceAlias '{EscapePs(adapterName)}' " +
-            $"-AddressFamily {family} " +
-            $"-ErrorAction SilentlyContinue).ServerAddresses; " +
-            $"if ($a) {{ $a -join ', ' }} else {{ '(automatic)' }}";
+            $"-ErrorAction SilentlyContinue | " +
+            $"Select-Object -ExpandProperty ServerAddresses";
 
         var result = await PowerShellService.RunAsync(cmd);
-        return string.IsNullOrWhiteSpace(result.Stdout) ? "(automatic)" : result.Stdout.Trim();
+
+        if (string.IsNullOrWhiteSpace(result.Stdout))
+            return ("(automatic)", "(automatic)");
+
+        var all = result.Stdout
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(a => a.Trim())
+            .Where(a => !string.IsNullOrEmpty(a))
+            .ToList();
+
+        var v4 = all.Where(a => IPAddress.TryParse(a, out var ip)
+                                 && ip.AddressFamily == AddressFamily.InterNetwork)
+                    .ToList();
+
+        var v6 = all.Where(a => IPAddress.TryParse(a, out var ip)
+                                 && ip.AddressFamily == AddressFamily.InterNetworkV6)
+                    .ToList();
+
+        return (
+            v4.Count > 0 ? string.Join(", ", v4) : "(automatic)",
+            v6.Count > 0 ? string.Join(", ", v6) : "(automatic)"
+        );
     }
 
-    private static async Task<string> FlushDnsAsync()
-    {
-        var result = await PowerShellService.RunAsync("ipconfig /flushdns");
-        return result.ExitCode == 0
-            ? "[OK]    DNS resolver cache flushed.\n"
-            : $"[WARN]  DNS flush exit {result.ExitCode}: {result.Stderr}\n";
-    }
-
-    /// <summary>Appends exit code, stdout, and stderr from a PS result to the log.</summary>
     private static void LogPsResult(StringBuilder log, PowerShellResult r)
     {
         log.AppendLine($"  exit={r.ExitCode}" + (r.TimedOut ? " [TIMED OUT]" : string.Empty));
