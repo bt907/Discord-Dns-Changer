@@ -170,7 +170,10 @@ public static class DnsService
 
     // ── Discord connectivity test ────────────────────────────────────────────
 
-    public record DiscordTestResult(bool DnsOk, bool PingOk, bool TcpOk, string Log);
+    public record DiscordTestResult(
+        bool DnsOk, bool PingOk, bool TcpOk,
+        bool GatewayOk, bool CdnOk,
+        string Log);
 
     public static async Task<DiscordTestResult> TestDiscordConnectivityAsync()
     {
@@ -234,9 +237,33 @@ public static class DnsService
                      tcp.Stdout.Contains("SUCCESS");
         log.AppendLine($"   → {(string.IsNullOrEmpty(tcp.Stdout) ? "no response" : tcp.Stdout)}");
 
+        // 5) Gateway WebSocket
+        log.AppendLine(string.Empty);
+        log.AppendLine("5) TCP connect  gateway.discord.gg:443  [WebSocket — required for app]");
+        var gw = await PowerShellService.RunAsync(
+            "try { " +
+            "  $c = Test-NetConnection -ComputerName gateway.discord.gg -Port 443 " +
+            "       -InformationLevel Quiet -ErrorAction Stop; " +
+            "  if ($c) { 'SUCCESS — gateway open' } else { 'BLOCKED — gateway refused' } " +
+            "} catch { 'FAILED: ' + $_.Exception.Message }");
+        bool gatewayOk = !string.IsNullOrEmpty(gw.Stdout) && gw.Stdout.Contains("SUCCESS");
+        log.AppendLine($"   → {(string.IsNullOrEmpty(gw.Stdout) ? "no response" : gw.Stdout)}");
+
+        // 6) CDN / update endpoint
+        log.AppendLine(string.Empty);
+        log.AppendLine("6) TCP connect  cdn.discordapp.com:443  [CDN / updates — fixes stuck updater]");
+        var cdn = await PowerShellService.RunAsync(
+            "try { " +
+            "  $c = Test-NetConnection -ComputerName cdn.discordapp.com -Port 443 " +
+            "       -InformationLevel Quiet -ErrorAction Stop; " +
+            "  if ($c) { 'SUCCESS — CDN open' } else { 'BLOCKED — CDN refused' } " +
+            "} catch { 'FAILED: ' + $_.Exception.Message }");
+        bool cdnOk = !string.IsNullOrEmpty(cdn.Stdout) && cdn.Stdout.Contains("SUCCESS");
+        log.AppendLine($"   → {(string.IsNullOrEmpty(cdn.Stdout) ? "no response" : cdn.Stdout)}");
+
         log.AppendLine(string.Empty);
         log.AppendLine("══════════════════════════════════════════════════════");
-        return new DiscordTestResult(dnsOk, pingOk, tcpOk, log.ToString());
+        return new DiscordTestResult(dnsOk, pingOk, tcpOk, gatewayOk, cdnOk, log.ToString());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

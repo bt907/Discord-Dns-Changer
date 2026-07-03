@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         {
             CheckAdminStatus();
             CheckDiscordStatus();
+            RefreshHostsStatus();
             await LoadAdaptersAsync();
         };
     }
@@ -105,27 +106,39 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = await DnsService.TestDiscordConnectivityAsync();
-            LogBlock(result.Log);
+            var r = await DnsService.TestDiscordConnectivityAsync();
+            LogBlock(r.Log);
 
-            bool allGood = result.DnsOk && result.PingOk && result.TcpOk;
-            bool partial = (result.DnsOk || result.PingOk) && !allGood;
+            bool allGood = r.DnsOk && r.PingOk && r.TcpOk && r.GatewayOk && r.CdnOk;
 
             if (allGood)
             {
-                ShowSuccess("DNS resolved  ✓   Internet reachable  ✓   TCP 443 open  ✓");
+                ShowSuccess(
+                    "DNS  ✓   Ping  ✓   TCP 443  ✓   Gateway  ✓   CDN/Updates  ✓",
+                    "All Discord services are reachable. The app should work.");
+                Log(" OK ", "All Discord connectivity checks passed.");
+                return;
             }
-            else if (partial)
+
+            // Build a summary of what failed
+            var passed = new List<string>();
+            var failed = new List<string>();
+
+            if (r.DnsOk)    passed.Add("DNS");    else failed.Add("DNS");
+            if (r.PingOk)   passed.Add("Ping");   else failed.Add("Ping");
+            if (r.TcpOk)    passed.Add("TCP 443"); else failed.Add("TCP 443");
+            if (r.GatewayOk) passed.Add("Gateway"); else failed.Add("Gateway ⚠");
+            if (r.CdnOk)    passed.Add("CDN");    else failed.Add("CDN/Updates ⚠");
+
+            if (failed.Count > 0)
             {
-                var issues = new List<string>();
-                if (!result.DnsOk)  issues.Add("DNS resolution failed");
-                if (!result.PingOk) issues.Add("ping unreachable");
-                if (!result.TcpOk)  issues.Add("TCP 443 blocked");
-                Log("WARN", $"Partial connectivity — {string.Join(", ", issues)}");
-            }
-            else
-            {
-                Log("FAIL", "Discord is NOT reachable. Check log for details.");
+                Log("WARN", $"Blocked: {string.Join(", ", failed)}");
+
+                bool onlyIpBlock = r.DnsOk && (!r.TcpOk || !r.GatewayOk || !r.CdnOk);
+                if (onlyIpBlock)
+                    Log("INFO", "DNS is OK but IPs are blocked → try 'Patch Hosts File' or use a VPN.");
+                else if (!r.DnsOk)
+                    Log("INFO", "DNS resolution failed → apply a DNS preset above first.");
             }
         }
         catch (Exception ex)
@@ -138,14 +151,62 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowSuccess(string subText)
+    private void ShowSuccess(string checks, string subText)
     {
-        SuccessSubText.Text  = subText;
+        SuccessSubText.Text       = $"{checks}\n\n{subText}";
         SuccessOverlay.Visibility = Visibility.Visible;
     }
 
     private void DismissSuccess_Click(object sender, RoutedEventArgs e)
         => SuccessOverlay.Visibility = Visibility.Collapsed;
+
+    // ── Hosts file patch ─────────────────────────────────────────────────────
+
+    private void RefreshHostsStatus()
+    {
+        bool patched = HostsService.HasHostsEntries();
+        HostsStatusText.Text      = patched ? "patched ✓" : "not patched";
+        HostsStatusText.Foreground = patched
+            ? new SolidColorBrush(Color.FromRgb(0x3E, 0xC9, 0x7E))
+            : new SolidColorBrush(Color.FromRgb(0x6A, 0x6A, 0x90));
+        HostsStatusBadge.BorderBrush = patched
+            ? new SolidColorBrush(Color.FromRgb(0x1A, 0x5A, 0x32))
+            : new SolidColorBrush(Color.FromRgb(0x28, 0x28, 0x4A));
+    }
+
+    private async void PatchHosts_Click(object sender, RoutedEventArgs e)
+    {
+        PatchHostsBtn.IsEnabled  = false;
+        RemoveHostsBtn.IsEnabled = false;
+        Log("====", "Patching hosts file with Discord IPs via Google DNS…");
+
+        try
+        {
+            var (success, logText) = await HostsService.PatchHostsAsync();
+            LogBlock(logText);
+            Log(success ? " OK " : "FAIL",
+                success
+                    ? "Hosts file patched. Restart Discord and try again."
+                    : "Hosts patch failed. See log above.");
+            RefreshHostsStatus();
+        }
+        catch (Exception ex)
+        {
+            Log("ERR ", $"Hosts patch threw: {ex.Message}");
+        }
+        finally
+        {
+            PatchHostsBtn.IsEnabled  = true;
+            RemoveHostsBtn.IsEnabled = true;
+        }
+    }
+
+    private void RemoveHosts_Click(object sender, RoutedEventArgs e)
+    {
+        var (_, logText) = HostsService.RemoveHosts();
+        LogBlock(logText);
+        RefreshHostsStatus();
+    }
 
     // ── Adapter loading ──────────────────────────────────────────────────────
 

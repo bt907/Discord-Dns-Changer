@@ -689,25 +689,75 @@
                     <TextBlock Text="DISCORD CONNECTIVITY" Style="{StaticResource SectionLabel}"/>
 
                     <Border Style="{StaticResource InfoCard}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Test Discord Connection"
-                                           Style="{StaticResource CardTitle}" Margin="0,0,0,4"/>
-                                <TextBlock Text="After applying DNS, verify Discord is actually reachable. Tests DNS resolution, ping, and TCP to discord.com."
-                                           Style="{StaticResource CardSub}"/>
-                            </StackPanel>
-                            <Button Grid.Column="1" x:Name="TestDiscordBtn"
-                                    Content="⚡  Test"
-                                    Style="{StaticResource PrimaryBtn}"
-                                    Background="{StaticResource AccentBrush}"
-                                    VerticalAlignment="Center"
-                                    Margin="14,0,0,0"
-                                    Click="TestDiscord_Click"/>
-                        </Grid>
+                        <StackPanel>
+
+                            <!-- Test row -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Test Discord Connection"
+                                               Style="{StaticResource CardTitle}" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Checks DNS, ping, TCP 443, WebSocket gateway, and CDN update endpoint."
+                                               Style="{StaticResource CardSub}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" x:Name="TestDiscordBtn"
+                                        Content="⚡  Test"
+                                        Style="{StaticResource PrimaryBtn}"
+                                        Background="{StaticResource AccentBrush}"
+                                        VerticalAlignment="Center"
+                                        Margin="14,0,0,0"
+                                        Click="TestDiscord_Click"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource DividerBrush}" Margin="0,0,0,12"/>
+
+                            <!-- Hosts patch row -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="Patch Hosts File"
+                                                   Style="{StaticResource CardTitle}"/>
+                                        <Border x:Name="HostsStatusBadge"
+                                                CornerRadius="4" Padding="6,2"
+                                                Background="{StaticResource Surface2Brush}"
+                                                BorderBrush="{StaticResource CardBorderBrush}"
+                                                BorderThickness="1"
+                                                VerticalAlignment="Center"
+                                                Margin="8,0,0,0">
+                                            <TextBlock x:Name="HostsStatusText"
+                                                       Text="not patched"
+                                                       Foreground="{StaticResource SubTextBrush}"
+                                                       FontSize="9.5" FontFamily="Consolas"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Text="Resolves all Discord domains via Google DNS and writes IPs to hosts file. Fixes 'stuck on updates' on blocked networks (e.g. Turkcell Superonline)."
+                                               Style="{StaticResource CardSub}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                            VerticalAlignment="Center" Margin="14,0,0,0">
+                                    <Button x:Name="PatchHostsBtn"
+                                            Content="🛠  Patch"
+                                            Style="{StaticResource PrimaryBtn}"
+                                            Background="#2A5A3A"
+                                            Foreground="#5EE89A"
+                                            Margin="0,0,6,0"
+                                            Click="PatchHosts_Click"/>
+                                    <Button x:Name="RemoveHostsBtn"
+                                            Content="✕"
+                                            Style="{StaticResource SecondaryBtn}"
+                                            Padding="10,9"
+                                            ToolTip="Remove hosts file entries"
+                                            Click="RemoveHosts_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
                     </Border>
 
                     <!-- ─── Actions ────────────────────────────────────────── -->
